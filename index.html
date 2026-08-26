@@ -1,9 +1,27 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>🌍 Geo Games Tracker</title>
+
+  <!-- Firebase (shared database so everyone sees the same scores) -->
+  <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-firestore-compat.js"></script>
+  <script>
+    // ⬇️ PASTE YOUR FIREBASE CONFIG HERE ⬇️
+    // Get this from: Firebase Console → Project Settings → General → Your apps → SDK setup and configuration
+    const firebaseConfig = {
+      apiKey: "AIzaSyB9KIm_0ROQK2iZ8whMQqehZV8F2Cgwhec",
+      authDomain: "geogame-tracker-4d20a.firebaseapp.com",
+      projectId: "geogame-tracker-4d20a",
+      storageBucket: "geogame-tracker-4d20a.firebasestorage.app",
+      messagingSenderId: "761848163094",
+      appId: "1:761848163094:web:e3f2f6cb0732f25481fe37"
+    };
+    // ⬆️ PASTE YOUR FIREBASE CONFIG HERE ⬆️
+  </script>
   <style>
     * {
       margin: 0;
@@ -911,18 +929,73 @@
       return null;
     }
 
-    // Load data
+    // ============================================
+    // FIREBASE SETUP (shared database across all devices)
+    // ============================================
+
+    let db = null;
+    let firebaseReady = false;
+    const appData = { scores: [], users: [] }; // live in-memory cache, kept in sync by Firestore listeners
+    const appUsers = {}; // { username: { photo } }
+
+    function initFirebase() {
+      if (firebaseConfig.apiKey === 'YOUR_API_KEY') {
+        showConnectionBanner(
+          '⚠️ Firebase isn\'t set up yet. Paste your config at the top of index.html to enable shared scores across devices.'
+        );
+        return;
+      }
+      try {
+        firebase.initializeApp(firebaseConfig);
+        db = firebase.firestore();
+        firebaseReady = true;
+
+        // Live listener: messages (scores + chat)
+        db.collection('messages').onSnapshot(snapshot => {
+          appData.scores = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+          lastChatDataHash = '';
+          lastLeaderboardHash = '';
+          updateChat();
+          updateLeaderboards();
+          if (document.getElementById('funstats').classList.contains('active')) {
+            renderFunStats();
+          }
+        }, err => {
+          console.error('Messages listener error:', err);
+          showConnectionBanner('⚠️ Could not connect to the shared database. Check your Firebase config and security rules.');
+        });
+
+        // Live listener: users (usernames + profile photos)
+        db.collection('users').onSnapshot(snapshot => {
+          Object.keys(appUsers).forEach(k => delete appUsers[k]);
+          snapshot.docs.forEach(doc => { appUsers[doc.id] = doc.data(); });
+          initializeUsers();
+          updateSidebarProfile();
+          lastChatDataHash = '';
+          updateChat();
+        }, err => {
+          console.error('Users listener error:', err);
+        });
+
+      } catch (err) {
+        console.error('Firebase init error:', err);
+        showConnectionBanner('⚠️ Could not connect to Firebase. Double check your config values.');
+      }
+    }
+
+    function showConnectionBanner(message) {
+      const container = document.getElementById('chatContainer');
+      if (container) {
+        container.innerHTML = `<div class="empty-state"><div style="max-width:400px; text-align:center;">${message}</div></div>`;
+      }
+    }
+
+    // Load data (synchronous read of the live cache — kept current by the Firestore listener above)
     function loadData() {
-      const saved = localStorage.getItem('geoGamesData');
-      return saved ? JSON.parse(saved) : { scores: [], users: [] };
+      return appData;
     }
 
-    // Save data
-    function saveData(data) {
-      localStorage.setItem('geoGamesData', JSON.stringify(data));
-    }
-
-    // Get current user
+    // Get current user (device-local — just "who am I on this device", not shared data)
     function getCurrentUser() {
       return localStorage.getItem('currentGeoUser') || '';
     }
@@ -942,26 +1015,29 @@
       return colors[Math.abs(hash) % colors.length];
     }
 
-    // ---- PROFILE PHOTOS ----
+    // ---- PROFILE PHOTOS (stored in Firestore "users" collection, cached in appUsers) ----
 
-    function loadProfiles() {
-      const saved = localStorage.getItem('geoGamesProfiles');
-      return saved ? JSON.parse(saved) : {};
-    }
-
-    function saveProfiles(profiles) {
-      localStorage.setItem('geoGamesProfiles', JSON.stringify(profiles));
+    function getProfilePhoto(username) {
+      return appUsers[username]?.photo || null;
     }
 
     function getProfilePhoto(username) {
-      const profiles = loadProfiles();
-      return profiles[username]?.photo || null;
+      return appUsers[username]?.photo || null;
     }
 
     function setProfilePhoto(username, dataUrl) {
-      const profiles = loadProfiles();
-      profiles[username] = { ...(profiles[username] || {}), photo: dataUrl };
-      saveProfiles(profiles);
+      if (!db) return;
+      db.collection('users').doc(username).set({ photo: dataUrl }, { merge: true })
+        .catch(err => console.error('Could not save photo:', err));
+    }
+
+    // Register a username in the shared users list (with optional initial photo)
+    function registerUser(username, photo) {
+      if (!db) return;
+      const payload = { createdAt: new Date().toISOString() };
+      if (photo) payload.photo = photo;
+      db.collection('users').doc(username).set(payload, { merge: true })
+        .catch(err => console.error('Could not register user:', err));
     }
 
     // Returns the inner HTML for an avatar circle: photo if set, else initial letter
@@ -1054,12 +1130,12 @@
 
     // Initialize user select
     function initializeUsers() {
-      const data = loadData();
       const select = document.getElementById('userSelect');
       const current = getCurrentUser();
 
-      // Get unique users
-      const users = [...new Set(data.scores.map(s => s.player))].sort();
+      // Get unique users from the shared users list (also fold in anyone who's posted a score, just in case)
+      const fromScores = appData.scores.map(s => s.player);
+      const users = [...new Set([...Object.keys(appUsers), ...fromScores])].sort();
       
       // Update select options
       select.innerHTML = '<option value="">Select your username...</option>';
@@ -1123,17 +1199,14 @@
         return;
       }
 
-      const data = loadData();
-      
-      // Add user to list if new
-      if (!data.users.includes(user)) {
-        data.users.push(user);
+      if (!db) {
+        alert('Not connected to the shared database yet. Check the Firebase setup.');
+        return;
       }
 
       const parsed = parseGameResult(text);
 
       const newMessage = {
-        id: generateId(),
         player: user,
         timestamp: new Date().toISOString(),
         replyTo: replyingTo ? replyingTo.id : null
@@ -1150,14 +1223,15 @@
         newMessage.date = new Date().toISOString().split('T')[0];
       }
 
-      data.scores.push(newMessage);
-      saveData(data);
-      
+      db.collection('messages').add(newMessage)
+        .catch(err => {
+          console.error('Could not send:', err);
+          alert('Could not send — check your connection and try again.');
+        });
+
       textInput.value = '';
       cancelReply();
-      lastChatDataHash = ''; // force re-render
-      updateChat();
-      updateLeaderboards();
+      // No manual re-render needed — the Firestore listener updates the UI for everyone, including you
     }
 
     // Get date range scores
@@ -2060,17 +2134,8 @@
         }
       });
 
-      initializeUsers();
       updateSidebarProfile();
-      updateChat();
-      updateLeaderboards();
-      setInterval(updateChat, 3000);
-      setInterval(updateLeaderboards, 5000);
-      setInterval(() => {
-        if (document.getElementById('funstats').classList.contains('active')) {
-          renderFunStats();
-        }
-      }, 5000);
+      initFirebase(); // connects to the shared database — chat/leaderboards/stats update live from here on
     });
 
     // Set username from modal
@@ -2082,27 +2147,20 @@
         return;
       }
 
-      const data = loadData();
-      
-      // Add to users list if not already there
-      if (!data.users.includes(username)) {
-        data.users.push(username);
-        saveData(data);
+      if (!db) {
+        alert('Not connected to the shared database yet. Check the Firebase setup.');
+        return;
       }
 
-      if (pendingModalPhoto) {
-        setProfilePhoto(username, pendingModalPhoto);
-        pendingModalPhoto = null;
-      }
+      registerUser(username, pendingModalPhoto);
+      pendingModalPhoto = null;
 
       setCurrentUser(username);
       document.getElementById('usernameModal').classList.remove('active');
-      initializeUsers();
       document.getElementById('userSelect').value = username;
       document.getElementById('usernameInput').value = '';
       updateSidebarProfile();
-      lastChatDataHash = '';
-      updateChat();
+      // initializeUsers/updateChat happen automatically via the Firestore users listener
     }
   </script>
 </body>
