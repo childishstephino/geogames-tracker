@@ -1,9 +1,8 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>🌍 Geo Games Tracker</title>
 
   <!-- Firebase (shared database so everyone sees the same scores) -->
@@ -464,6 +463,32 @@
       text-align: center;
       min-width: 300px;
       max-width: 500px;
+      position: relative;
+    }
+
+    .modal-close-btn {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      width: 32px;
+      height: 32px;
+      padding: 0;
+      background: #40444b;
+      color: #b9bbbe;
+      border: none;
+      border-radius: 50%;
+      font-size: 1em;
+      line-height: 1;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.2s, color 0.2s;
+    }
+
+    .modal-close-btn:hover {
+      background: #4f545c;
+      color: white;
     }
 
     .modal h1 {
@@ -708,38 +733,168 @@
     }
 
     @media (max-width: 768px) {
-      body {
-        flex-direction: column;
+      html, body {
+        overflow-x: hidden;
       }
 
+      body {
+        flex-direction: column;
+        height: 100dvh;
+      }
+
+      /* Top bar: compact — logo hidden, just profile + user switcher */
       .sidebar {
         width: 100%;
         flex-direction: row;
         align-items: center;
-        gap: 10px;
-      }
-
-      .tabs {
-        flex-direction: row;
-        flex: 0;
+        gap: 8px;
+        padding: 8px 10px;
+        flex-shrink: 0;
       }
 
       .server-name {
+        display: none;
+      }
+
+      .profile-row {
         margin-bottom: 0;
+        padding: 4px;
+        flex-shrink: 0;
+        background: none;
+      }
+
+      .profile-avatar-large {
+        width: 34px;
+        height: 34px;
+        font-size: 0.95em;
+      }
+
+      .profile-row-info {
+        display: none; /* username + change-photo link hidden on mobile top bar to save space */
       }
 
       .user-select {
         margin-bottom: 0;
         flex: 1;
+        padding: 10px;
+        font-size: 0.9em;
+      }
+
+      /* Bottom nav bar (fixed) instead of sidebar tab list */
+      .tabs {
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        flex-direction: row;
+        justify-content: space-around;
+        gap: 0;
+        background: #2f3136;
+        border-top: 1px solid #202225;
+        padding: 6px 4px calc(6px + env(safe-area-inset-bottom));
+        z-index: 500;
+      }
+
+      .tab-btn {
+        flex: 1;
+        text-align: center;
+        font-size: 0.72em;
+        padding: 8px 2px;
+        border-radius: 6px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 2px;
+      }
+
+      .tab-btn .tab-icon {
+        font-size: 1.3em;
+        line-height: 1;
+      }
+
+      .tab-btn .tab-label {
+        font-size: 0.95em;
+      }
+
+      /* Leave room above the fixed bottom nav so content/input isn't hidden behind it */
+      .main-content {
+        padding-bottom: 64px;
+        min-height: 0;
+      }
+
+      .chat-container {
+        padding: 12px;
+      }
+
+      .header {
+        padding: 12px 15px;
+      }
+
+      .header h2 {
+        font-size: 1.1em;
+      }
+
+      .message {
+        gap: 8px;
+      }
+
+      .avatar {
+        width: 34px;
+        height: 34px;
+        font-size: 0.9em;
+      }
+
+      /* Prevent iOS Safari from auto-zooming when focusing inputs (needs >=16px font) */
+      textarea, input[type="text"], .user-select {
+        font-size: 16px;
       }
 
       .input-area {
-        flex-direction: column;
+        flex-direction: row;
+        padding: 10px 12px;
+      }
+
+      .input-wrapper {
+        flex-direction: row;
+      }
+
+      textarea {
+        min-height: 40px;
+      }
+
+      button {
+        padding: 10px 14px;
+      }
+
+      .leaderboard-container {
+        padding: 12px;
+      }
+
+      .stats-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .stat-card {
+        padding: 12px;
       }
 
       .modal {
-        min-width: 80%;
-        padding: 30px;
+        min-width: 85%;
+        padding: 25px 20px;
+      }
+
+      .modal h1 {
+        font-size: 1.6em;
+      }
+    }
+
+    @media (max-width: 400px) {
+      .tab-btn {
+        font-size: 0.65em;
+        padding: 8px 1px;
       }
     }
   </style>
@@ -748,6 +903,7 @@
   <!-- USERNAME MODAL -->
   <div class="modal-overlay active" id="usernameModal">
     <div class="modal">
+      <button class="modal-close-btn" id="modalCloseBtn" onclick="closeUsernameModal()" style="display:none;" aria-label="Close">✕</button>
       <h1>🌍 Geo Games</h1>
       <p id="modalSubtitle">What's your username?</p>
 
@@ -772,7 +928,7 @@
     <div class="server-name">🌍 Geo Games</div>
 
     <div class="profile-row" id="profileRow" style="display:none;">
-      <div class="profile-avatar-large" id="sidebarAvatar"></div>
+      <div class="profile-avatar-large" id="sidebarAvatar" onclick="openChangePhoto()" style="cursor:pointer;" title="Tap to change photo"></div>
       <div class="profile-row-info">
         <div class="profile-row-name" id="sidebarUsername"></div>
         <button class="change-photo-btn" onclick="openChangePhoto()">Change photo</button>
@@ -786,11 +942,11 @@
     <input type="file" id="changePhotoInput" accept="image/*" style="display:none" onchange="handleChangePhotoSelect(event)">
 
     <div class="tabs">
-      <button class="tab-btn active" onclick="switchTab('chat', this)">💬 Chat</button>
-      <button class="tab-btn" onclick="switchTab('today', this)">📅 Today</button>
-      <button class="tab-btn" onclick="switchTab('weekly', this)">📆 Weekly</button>
-      <button class="tab-btn" onclick="switchTab('monthly', this)">📈 Monthly</button>
-      <button class="tab-btn" onclick="switchTab('funstats', this)">🎉 Fun Stats</button>
+      <button class="tab-btn active" onclick="switchTab('chat', this)"><span class="tab-icon">💬</span><span class="tab-label"> Chat</span></button>
+      <button class="tab-btn" onclick="switchTab('today', this)"><span class="tab-icon">📅</span><span class="tab-label"> Today</span></button>
+      <button class="tab-btn" onclick="switchTab('weekly', this)"><span class="tab-icon">📆</span><span class="tab-label"> Weekly</span></button>
+      <button class="tab-btn" onclick="switchTab('monthly', this)"><span class="tab-icon">📈</span><span class="tab-label"> Monthly</span></button>
+      <button class="tab-btn" onclick="switchTab('funstats', this)"><span class="tab-icon">🎉</span><span class="tab-label"> Stats</span></button>
     </div>
   </div>
 
@@ -1166,6 +1322,7 @@
         // Show modal for new username
         resetModalForNewUser();
         document.getElementById('usernameModal').classList.add('active');
+        document.getElementById('modalCloseBtn').style.display = getCurrentUser() ? 'flex' : 'none';
         document.getElementById('usernameInput').focus();
       } else if (value) {
         setCurrentUser(value);
@@ -1182,6 +1339,16 @@
       document.getElementById('photoPreview').innerHTML = '<span id="photoPreviewInitial">📷</span>';
       document.getElementById('modalSubtitle').textContent = "What's your username?";
       document.getElementById('modalSubmitBtn').textContent = "Let's Go 🚀";
+    }
+
+    // Close the modal without picking a username — only reachable when a username was already set,
+    // so we fall back to it rather than leaving the app with no identity
+    function closeUsernameModal() {
+      const current = getCurrentUser();
+      if (!current) return; // safety net: shouldn't happen since the button is hidden in this case
+      document.getElementById('usernameModal').classList.remove('active');
+      document.getElementById('userSelect').value = current;
+      pendingModalPhoto = null;
     }
 
     // Submit score or chat message
@@ -2117,9 +2284,10 @@
       document.getElementById('chat').classList.add('active');
       document.querySelector('.tab-btn[onclick*="chat"]').classList.add('active');
       
-      // If no username saved, show modal
+      // If no username saved, show modal (no close button — a username is required to use the app)
       if (!current) {
         document.getElementById('usernameModal').classList.add('active');
+        document.getElementById('modalCloseBtn').style.display = 'none';
         document.getElementById('usernameInput').focus();
       } else {
         document.getElementById('usernameModal').classList.remove('active');
@@ -2131,6 +2299,13 @@
         if (e.key === 'Enter' && !e.shiftKey) {
           e.preventDefault();
           submitScore();
+        }
+      });
+
+      // Escape key closes the modal (only when a fallback username exists)
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && document.getElementById('usernameModal').classList.contains('active')) {
+          closeUsernameModal();
         }
       });
 
