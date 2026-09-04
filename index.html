@@ -1517,18 +1517,25 @@
 
     // Format a message's timestamp with date context — "Today, 3:45 PM", "Yesterday, ...",
     // or "Aug 24, ..." (plus year if not the current year). Uses the viewer's local time/timezone.
+    // Calendar-day difference between now and a given date (ignores time-of-day)
+    function daysAgo(dateObj) {
+      const startOfDay = d => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+      const now = new Date();
+      return Math.round((startOfDay(now) - startOfDay(dateObj)) / 86400000);
+    }
+
+    // Format a message's timestamp with date context:
+    // Today, ... → Yesterday, ... → weekday name (2-4 days ago) → full date (5+ days ago)
     function formatMessageTimestamp(dateObj) {
       const now = new Date();
-      const yesterday = new Date(now);
-      yesterday.setDate(yesterday.getDate() - 1);
-
       const timeStr = dateObj.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+      const diff = daysAgo(dateObj);
 
-      if (dateObj.toDateString() === now.toDateString()) {
-        return `Today, ${timeStr}`;
-      }
-      if (dateObj.toDateString() === yesterday.toDateString()) {
-        return `Yesterday, ${timeStr}`;
+      if (diff === 0) return `Today, ${timeStr}`;
+      if (diff === 1) return `Yesterday, ${timeStr}`;
+      if (diff >= 2 && diff <= 4) {
+        const weekday = dateObj.toLocaleDateString('en-US', { weekday: 'long' });
+        return `${weekday}, ${timeStr}`;
       }
       const dateOpts = dateObj.getFullYear() !== now.getFullYear()
         ? { month: 'short', day: 'numeric', year: 'numeric' }
@@ -1536,14 +1543,16 @@
       return `${dateObj.toLocaleDateString('en-US', dateOpts)}, ${timeStr}`;
     }
 
-    // Label for the day-divider line between groups of messages
+    // Label for the day-divider line between groups of messages — same tiers, no time
     function dividerLabel(dateObj) {
       const now = new Date();
-      const yesterday = new Date(now);
-      yesterday.setDate(yesterday.getDate() - 1);
+      const diff = daysAgo(dateObj);
 
-      if (dateObj.toDateString() === now.toDateString()) return 'Today';
-      if (dateObj.toDateString() === yesterday.toDateString()) return 'Yesterday';
+      if (diff === 0) return 'Today';
+      if (diff === 1) return 'Yesterday';
+      if (diff >= 2 && diff <= 4) {
+        return dateObj.toLocaleDateString('en-US', { weekday: 'long' });
+      }
       const dateOpts = dateObj.getFullYear() !== now.getFullYear()
         ? { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' }
         : { weekday: 'long', month: 'short', day: 'numeric' };
