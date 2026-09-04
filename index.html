@@ -282,6 +282,28 @@
       color: #72767d;
     }
 
+    .date-divider {
+      display: flex;
+      align-items: center;
+      text-align: center;
+      color: #72767d;
+      font-size: 0.8em;
+      font-weight: 600;
+      margin: 8px 0 4px;
+    }
+
+    .date-divider::before,
+    .date-divider::after {
+      content: '';
+      flex: 1;
+      border-bottom: 1px solid #40444b;
+    }
+
+    .date-divider span {
+      padding: 0 12px;
+      white-space: nowrap;
+    }
+
     .message-text {
       color: #dcddde;
       line-height: 1.5;
@@ -520,7 +542,7 @@
       border-color: #7289da;
     }
 
-    .modal button {
+    .modal button:not(.modal-close-btn) {
       width: 100%;
       padding: 14px;
       font-size: 1.05em;
@@ -1024,23 +1046,102 @@
     }
 
     // Parse game results
+    // ---- COUNTRY NAME → FLAG EMOJI (for when someone types the Flagle answer alongside their score) ----
+
+    const COUNTRY_CODES = {
+      'afghanistan':'AF','albania':'AL','algeria':'DZ','andorra':'AD','angola':'AO',
+      'antigua and barbuda':'AG','argentina':'AR','armenia':'AM','australia':'AU','austria':'AT',
+      'azerbaijan':'AZ','bahamas':'BS','bahrain':'BH','bangladesh':'BD','barbados':'BB',
+      'belarus':'BY','belgium':'BE','belize':'BZ','benin':'BJ','bhutan':'BT',
+      'bolivia':'BO','bosnia and herzegovina':'BA','bosnia':'BA','botswana':'BW','brazil':'BR',
+      'brunei':'BN','bulgaria':'BG','burkina faso':'BF','burundi':'BI','cabo verde':'CV',
+      'cape verde':'CV','cambodia':'KH','cameroon':'CM','canada':'CA',
+      'central african republic':'CF','chad':'TD','chile':'CL','china':'CN','colombia':'CO',
+      'comoros':'KM','congo':'CG','democratic republic of the congo':'CD','dr congo':'CD',
+      'costa rica':'CR','croatia':'HR','cuba':'CU','cyprus':'CY','czech republic':'CZ','czechia':'CZ',
+      'denmark':'DK','djibouti':'DJ','dominica':'DM','dominican republic':'DO',
+      'ecuador':'EC','egypt':'EG','el salvador':'SV','equatorial guinea':'GQ','eritrea':'ER',
+      'estonia':'EE','eswatini':'SZ','swaziland':'SZ','ethiopia':'ET','fiji':'FJ','finland':'FI',
+      'france':'FR','gabon':'GA','gambia':'GM','georgia':'GE','germany':'DE','ghana':'GH',
+      'greece':'GR','grenada':'GD','guatemala':'GT','guinea':'GN','guinea-bissau':'GW',
+      'guyana':'GY','haiti':'HT','honduras':'HN','hungary':'HU','iceland':'IS','india':'IN',
+      'indonesia':'ID','iran':'IR','iraq':'IQ','ireland':'IE','israel':'IL','italy':'IT',
+      'ivory coast':'CI',"cote d'ivoire":'CI','jamaica':'JM','japan':'JP','jordan':'JO',
+      'kazakhstan':'KZ','kenya':'KE','kiribati':'KI','kosovo':'XK','kuwait':'KW','kyrgyzstan':'KG',
+      'laos':'LA','latvia':'LV','lebanon':'LB','lesotho':'LS','liberia':'LR','libya':'LY',
+      'liechtenstein':'LI','lithuania':'LT','luxembourg':'LU','madagascar':'MG','malawi':'MW',
+      'malaysia':'MY','maldives':'MV','mali':'ML','malta':'MT','marshall islands':'MH',
+      'mauritania':'MR','mauritius':'MU','mexico':'MX','micronesia':'FM','moldova':'MD',
+      'monaco':'MC','mongolia':'MN','montenegro':'ME','morocco':'MA','mozambique':'MZ',
+      'myanmar':'MM','burma':'MM','namibia':'NA','nauru':'NR','nepal':'NP','netherlands':'NL',
+      'new zealand':'NZ','nicaragua':'NI','niger':'NE','nigeria':'NG','north korea':'KP',
+      'north macedonia':'MK','macedonia':'MK','norway':'NO','oman':'OM','pakistan':'PK','palau':'PW',
+      'palestine':'PS','panama':'PA','papua new guinea':'PG','paraguay':'PY','peru':'PE',
+      'philippines':'PH','poland':'PL','portugal':'PT','qatar':'QA','romania':'RO','russia':'RU',
+      'rwanda':'RW','saint kitts and nevis':'KN','saint lucia':'LC',
+      'saint vincent and the grenadines':'VC','samoa':'WS','san marino':'SM',
+      'sao tome and principe':'ST','saudi arabia':'SA','senegal':'SN','serbia':'RS',
+      'seychelles':'SC','sierra leone':'SL','singapore':'SG','slovakia':'SK','slovenia':'SI',
+      'solomon islands':'SB','somalia':'SO','south africa':'ZA','south korea':'KR','korea':'KR',
+      'south sudan':'SS','spain':'ES','sri lanka':'LK','sudan':'SD','suriname':'SR','sweden':'SE',
+      'switzerland':'CH','syria':'SY','taiwan':'TW','tajikistan':'TJ','tanzania':'TZ',
+      'thailand':'TH','timor-leste':'TL','east timor':'TL','togo':'TG','tonga':'TO',
+      'trinidad and tobago':'TT','tunisia':'TN','turkey':'TR','turkiye':'TR','turkmenistan':'TM',
+      'tuvalu':'TV','uganda':'UG','ukraine':'UA','united arab emirates':'AE','uae':'AE',
+      'united kingdom':'GB','uk':'GB','great britain':'GB','united states':'US','usa':'US',
+      'united states of america':'US','uruguay':'UY','uzbekistan':'UZ','vanuatu':'VU',
+      'vatican city':'VA','vatican':'VA','venezuela':'VE','vietnam':'VN','yemen':'YE',
+      'zambia':'ZM','zimbabwe':'ZW'
+    };
+
+    // Sorted longest-name-first so "south korea" matches before "korea", etc.
+    const COUNTRY_NAMES_SORTED = Object.keys(COUNTRY_CODES).sort((a, b) => b.length - a.length);
+
+    function countryCodeToFlagEmoji(code) {
+      return String.fromCodePoint(...[...code.toUpperCase()].map(c => 127397 + c.charCodeAt(0)));
+    }
+
+    function escapeRegex(str) {
+      return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    }
+
+    // Finds a country name as a whole word/phrase anywhere in the text and returns its flag emoji, or null
+    function getFlagEmojiFromText(text) {
+      const lower = text.toLowerCase();
+      for (const name of COUNTRY_NAMES_SORTED) {
+        const pattern = new RegExp(`\\b${escapeRegex(name)}\\b`, 'i');
+        if (pattern.test(lower)) {
+          return countryCodeToFlagEmoji(COUNTRY_CODES[name]);
+        }
+      }
+      return null;
+    }
+
     function parseGameResult(text) {
       text = text.trim();
 
+      // Matches a run of emoji (including variation selectors ️ and ZWJ-joined emoji),
+      // grouped across whitespace — so ANY emoji set a game uses gets picked up,
+      // not just a hardcoded list.
+      const EMOJI_RUN = /[\p{Extended_Pictographic}\uFE0F\u200d]+(?:\s+[\p{Extended_Pictographic}\uFE0F\u200d]+)*/u;
+      const EMOJI_CHARS = /[\p{Extended_Pictographic}\uFE0F\u200d]+/gu;
+
       // Flagle
-      if (text.includes('#Flagle') || text.match(/🟩|🟥|⬜/)) {
+      if (text.includes('#Flagle') || text.includes('flagle.io') || text.match(/[🟩🟥🟨⬜⬛🟧🟦🟪🟫⬆️⬇️➡️⬅️↗️↘️↙️↖️]/u)) {
         const attemptMatch = text.match(/(\d+|[A-Z])\/6/);
         const attempts = attemptMatch ? attemptMatch[1] : 'X';
-        const emojis = text.match(/(🟩|🟥|⬜)+(\s+(🟩|🟥|⬜)+)*/)?.[0] || '';
+        const emojis = text.match(EMOJI_RUN)?.[0] || '';
         const rows = emojis.trim().split(/\s+/).filter(Boolean);
+        const flagEmoji = getFlagEmojiFromText(text);
         
         return {
           type: 'Flagle',
           score: attempts === 'X' ? 0 : parseInt(attempts),
-          display: `${emojis} (${attempts}/6)`,
+          display: flagEmoji ? `${flagEmoji} ${emojis} (${attempts}/6)` : `${emojis} (${attempts}/6)`,
           date: new Date().toISOString().split('T')[0],
           rawEmojis: emojis,
-          rows: rows
+          rows: rows,
+          countryFlag: flagEmoji || null
         };
       }
 
@@ -1049,7 +1150,7 @@
         const finalMatch = text.match(/Final score:\s*(\d+)/);
         const finalScore = finalMatch ? parseInt(finalMatch[1]) : 0;
         
-        const scorePattern = /(\d+)(🎯|👑|🌞)/g;
+        const scorePattern = new RegExp(`(\\d+)(${EMOJI_CHARS.source})`, 'gu');
         const scores = [];
         const miniScores = [];
         let match;
@@ -1071,7 +1172,7 @@
       if (text.includes('geogridgame.com') || text.includes('Score:')) {
         const scoreMatch = text.match(/Score:\s*([\d.]+)/);
         const score = scoreMatch ? parseFloat(scoreMatch[1]) : 0;
-        const emojis = text.match(/(🌈|💎|❌|⚡️|🔥|✅)([\s]?(🌈|💎|❌|⚡️|🔥|✅))*/)?.[0] || '';
+        const emojis = text.match(EMOJI_RUN)?.[0] || '';
         
         return {
           type: 'Geogrid',
@@ -1414,6 +1515,41 @@
       return data.scores.filter(s => s.date >= startStr && s.date <= endStr);
     }
 
+    // Format a message's timestamp with date context — "Today, 3:45 PM", "Yesterday, ...",
+    // or "Aug 24, ..." (plus year if not the current year). Uses the viewer's local time/timezone.
+    function formatMessageTimestamp(dateObj) {
+      const now = new Date();
+      const yesterday = new Date(now);
+      yesterday.setDate(yesterday.getDate() - 1);
+
+      const timeStr = dateObj.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+
+      if (dateObj.toDateString() === now.toDateString()) {
+        return `Today, ${timeStr}`;
+      }
+      if (dateObj.toDateString() === yesterday.toDateString()) {
+        return `Yesterday, ${timeStr}`;
+      }
+      const dateOpts = dateObj.getFullYear() !== now.getFullYear()
+        ? { month: 'short', day: 'numeric', year: 'numeric' }
+        : { month: 'short', day: 'numeric' };
+      return `${dateObj.toLocaleDateString('en-US', dateOpts)}, ${timeStr}`;
+    }
+
+    // Label for the day-divider line between groups of messages
+    function dividerLabel(dateObj) {
+      const now = new Date();
+      const yesterday = new Date(now);
+      yesterday.setDate(yesterday.getDate() - 1);
+
+      if (dateObj.toDateString() === now.toDateString()) return 'Today';
+      if (dateObj.toDateString() === yesterday.toDateString()) return 'Yesterday';
+      const dateOpts = dateObj.getFullYear() !== now.getFullYear()
+        ? { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' }
+        : { weekday: 'long', month: 'short', day: 'numeric' };
+      return dateObj.toLocaleDateString('en-US', dateOpts);
+    }
+
     // Track last rendered state to avoid unnecessary re-renders
     let lastChatDataHash = '';
 
@@ -1446,11 +1582,21 @@
       const byId = {};
       data.scores.forEach(s => { if (s.id) byId[s.id] = s; });
 
+      let lastDividerKey = null;
+
       container.innerHTML = sorted.map(score => {
         const date = new Date(score.timestamp);
-        const timeStr = date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+        const timeStr = formatMessageTimestamp(date);
         const avatar = avatarInner(score.player);
         const isGame = score.isGame !== false && score.type && score.type !== 'Message';
+
+        // Insert a day divider whenever the calendar day changes (list is newest → oldest)
+        let dividerHtml = '';
+        const dayKey = date.toDateString();
+        if (dayKey !== lastDividerKey) {
+          dividerHtml = `<div class="date-divider"><span>${dividerLabel(date)}</span></div>`;
+          lastDividerKey = dayKey;
+        }
 
         let replyHtml = '';
         if (score.replyTo && byId[score.replyTo]) {
@@ -1471,6 +1617,7 @@
           : escapeHtml(score.display);
 
         return `
+          ${dividerHtml}
           <div class="message" data-id="${score.id || ''}">
             <div class="avatar" style="background: ${getColorForUser(score.player)}">${avatar}</div>
             <div class="message-content">
@@ -1783,7 +1930,10 @@
         scores.forEach(s => {
           const chars = [...s.rawEmojis].filter(c => c.trim());
           total += chars.length;
-          good += chars.filter(c => c === '💎' || c === '🌈').length;
+          // GeoGrid rarity legend: 🟩 Common (≥25%) · 🔷 Uncommon (≥10%) · ⚡️ Rare (≥5%)
+          // · 🌈 Epic (≥2%) · 💎 Legendary (≥0.5%) · 🦄 Mythical (<0.5%)
+          // "Purist" = landed in the truly rare tiers: Epic, Legendary, or Mythical
+          good += chars.filter(c => c === '🌈' || c === '💎' || c === '🦄').length;
         });
         const pct = total > 0 ? ((good / total) * 100).toFixed(0) : 0;
         return { player, pct };
@@ -2151,7 +2301,7 @@
       const purist = statGeogridPurist(geogrid);
       html += `<div class="stat-card">
         <div class="stat-card-title">💎 Grid Purist</div>
-        <div class="stat-card-desc">% of cells that were 💎 or 🌈 (perfect)</div>
+        <div class="stat-card-desc">% of picks in the rare tiers — 🌈 Epic, 💎 Legendary, or 🦄 Mythical</div>
         ${renderStatLines(purist, s => playerLine(s.player, `${s.pct}%`), 'No Geogrid data yet')}
       </div>`;
 
